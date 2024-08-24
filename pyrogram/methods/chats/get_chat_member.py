@@ -21,7 +21,7 @@ from typing import Union
 import pyrogram
 from pyrogram import raw
 from pyrogram import types
-from pyrogram.errors import UserNotParticipant
+from pyrogram.errors import UserNotParticipant, PeerIdInvalid
 
 
 class GetChatMember:
@@ -30,28 +30,6 @@ class GetChatMember:
         chat_id: Union[int, str],
         user_id: Union[int, str]
     ) -> "types.ChatMember":
-        """Get information about one member of a chat.
-
-        .. include:: /_includes/usable-by/users-bots.rst
-
-        Parameters:
-            chat_id (``int`` | ``str``):
-                Unique identifier (int) or username (str) of the target chat.
-
-            user_id (``int`` | ``str``)::
-                Unique identifier (int) or username (str) of the target user.
-                For you yourself you can simply use "me" or "self".
-                For a contact that exists in your Telegram address book you can use his phone number (str).
-
-        Returns:
-            :obj:`~pyrogram.types.ChatMember`: On success, a chat member is returned.
-
-        Example:
-            .. code-block:: python
-
-                member = await app.get_chat_member(chat_id, "me")
-                print(member)
-        """
         chat = await self.resolve_peer(chat_id)
         user = await self.resolve_peer(user_id)
 
@@ -90,3 +68,76 @@ class GetChatMember:
             return types.ChatMember._parse(self, r.participant, users, chats)
         else:
             raise ValueError(f'The chat_id "{chat_id}" belongs to a user')
+
+    async def resolve_peer(
+        self: "pyrogram.Client",
+        peer_id: Union[int, str]
+    ) -> Union[raw.base.InputPeer, raw.base.InputUser, raw.base.InputChannel]:
+
+        if not self.is_connected:
+            raise ConnectionError("Client has not been started yet")
+
+        try:
+            return await self.storage.get_peer_by_id(peer_id)
+        except KeyError:
+            if isinstance(peer_id, str):
+                if peer_id in ("self", "me"):
+                    return raw.types.InputPeerSelf()
+
+                peer_id = re.sub(r"[@+\s]", "", peer_id.lower())
+
+                try:
+                    int(peer_id)
+                except ValueError:
+                    try:
+                        return await self.storage.get_peer_by_username(peer_id)
+                    except KeyError:
+                        await self.invoke(
+                            raw.functions.contacts.ResolveUsername(
+                                username=peer_id
+                            )
+                        )
+                        return await self.storage.get_peer_by_username(peer_id)
+                else:
+                    try:
+                        return await self.storage.get_peer_by_phone_number(peer_id)
+                    except KeyError:
+                        raise PeerIdInvalid
+
+            peer_type = utils.get_peer_type(peer_id)
+
+            if peer_type == "user":
+                await self.fetch_peers(
+                    await self.invoke(
+                        raw.functions.users.GetUsers(
+                            id=[
+                                raw.types.InputUser(
+                                    user_id=peer_id,
+                                    access_hash=0
+                                )
+                            ]
+                        )
+                    )
+                )
+            elif peer_type == "chat":
+                await self.invoke(
+                    raw.functions.messages.GetChats(
+                        id=[-peer_id]
+                    )
+                )
+            else:
+                await self.invoke(
+                    raw.functions.channels.GetChannels(
+                        id=[
+                            raw.types.InputChannel(
+                                channel_id=utils.get_channel_id(peer_id),
+                                access_hash=0
+                            )
+                        ]
+                    )
+                )
+
+            try:
+                return await self.storage.get_peer_by_id(peer_id)
+            except KeyError:
+                return raw.types.InputPeerEmpty()
