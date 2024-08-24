@@ -33,28 +33,7 @@ class ResolvePeer:
         self: "pyrogram.Client",
         peer_id: Union[int, str]
     ) -> Union[raw.base.InputPeer, raw.base.InputUser, raw.base.InputChannel]:
-        """Get the InputPeer of a known peer id.
-        Useful whenever an InputPeer type is required.
 
-        .. note::
-
-            This is a utility method intended to be used **only** when working with raw
-            :obj:`functions <pyrogram.api.functions>` (i.e: a Telegram API method you wish to use which is not
-            available yet in the Client class as an easy-to-use method).
-
-        .. include:: /_includes/usable-by/users-bots.rst
-
-        Parameters:
-            peer_id (``int`` | ``str``):
-                The peer id you want to extract the InputPeer from.
-                Can be a direct id (int), a username (str) or a phone number (str).
-
-        Returns:
-            ``InputPeer``: On success, the resolved peer id is returned in form of an InputPeer object.
-
-        Raises:
-            KeyError: In case the peer doesn't exist in the internal database.
-        """
         if not self.is_connected:
             raise ConnectionError("Client has not been started yet")
 
@@ -78,7 +57,6 @@ class ResolvePeer:
                                 username=peer_id
                             )
                         )
-
                         return await self.storage.get_peer_by_username(peer_id)
                 else:
                     try:
@@ -122,4 +100,4 @@ class ResolvePeer:
             try:
                 return await self.storage.get_peer_by_id(peer_id)
             except KeyError:
-                raise PeerIdInvalid
+                return raw.types.InputPeerEmpty()
